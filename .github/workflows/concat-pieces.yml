@@ -1,0 +1,45 @@
+name: concat-os-pieces
+on:
+  push:
+    paths:
+      - 'compressed/pieces/**'
+      - '.github/workflows/concat-pieces.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  concat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Concat + verify OS parts 4-9
+        run: |
+          python3 <<'PY'
+          import hashlib, pathlib
+          expected = {
+            4: '84fc1128b9c6bf584d810412f01d1178f3fb6e72',
+            5: '345b48fcf638857ddbb0b9e5e9e93a455f38aa4c',
+            6: '6d9ae2899296821c97bba9804ed71f0994d20a40',
+            7: 'b03506c5565149970bcb1efdf150271ecfff7f6b',
+            8: 'e4f08f5a9e3b575a8dd15875a8bfd2c5d80c3f9f',
+            9: '0018716089e9841ee2ef70ee51bfdf8da5e37244',
+          }
+          root = pathlib.Path('compressed/pieces')
+          outdir = pathlib.Path('compressed')
+          for part, exp in expected.items():
+            files = sorted(root.glob(f'os{part}_*.txt'), key=lambda p: int(p.stem.split('_')[1]))
+            assert files, part
+            data = ''.join(p.read_text() for p in files)
+            (outdir / f'os.zlib.part{part}.b64').write_text(data)
+            got = hashlib.sha1(b'blob %d\0' % len(data.encode()) + data.encode()).hexdigest()
+            print(part, len(files), len(data), got, got==exp)
+            assert got == exp
+          print('OK')
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add compressed/os.zlib.part*.b64
+          git diff --cached --quiet || git commit -m "concat OS zlib parts 4-9 from pieces"
+          git push
