@@ -1,0 +1,41 @@
+name: fix-os-parts
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/fix-os-parts.yml']
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply known single-byte fixes
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          fixes = {
+            'compressed/os.zlib.part0.b64': [(4525, 'r')],
+            'compressed/os.zlib.part3.b64': [(198, '7')],
+          }
+          for path, edits in fixes.items():
+            p = Path(path)
+            if not p.exists():
+              print('skip missing', path)
+              continue
+            b = bytearray(p.read_bytes())
+            for idx, ch in edits:
+              old = chr(b[idx])
+              print(f'{path}[{idx}]: {old!r} -> {ch!r}')
+              b[idx] = ord(ch)
+            p.write_bytes(b)
+            print('wrote', path, 'len', len(b))
+          PY
+      - name: Commit fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add compressed/os.zlib.part0.b64 compressed/os.zlib.part3.b64
+          if git diff --cached --quiet; then echo No changes; exit 0; fi
+          git commit -m "fix OS zlib part0/part3 single-byte corruptions"
+          git push
