@@ -6,6 +6,7 @@ on:
       - 'chunks/**'
       - 'manifest.json'
       - '.github/workflows/assemble.yml'
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -17,7 +18,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 <<'PY'
-          import base64, json, pathlib
+          import base64, json, pathlib, hashlib
           root = pathlib.Path('.')
           manifest = json.loads((root/'manifest.json').read_text())
           mapping = {
@@ -29,11 +30,21 @@ jobs:
             parts = []
             for i in range(n):
               p = root/'chunks'/f'{name}.{i:03d}.b64'
+              if not p.exists():
+                raise SystemExit(f'missing {p} (need {n} chunks for {name})')
               parts.append(p.read_text().strip())
             data = base64.b64decode(''.join(parts))
             out = root/mapping[name]
             out.write_bytes(data)
-            print(name, '->', out, 'bytes', len(data))
+            print(name, '->', out, 'bytes', len(data), 'sha256', hashlib.sha256(data).hexdigest())
+          decisions = (root/'decisions.md').read_text(encoding='utf-8')
+          os_text = (root/'os.md').read_text(encoding='utf-8')
+          reg = json.loads((root/'registry.json').read_text(encoding='utf-8'))
+          assert 'D-038' in decisions
+          assert 'AS-ENV-PPC-02' in os_text
+          assert len(os_text.encode()) > 140000
+          assert any(d.get('path') == 'os/環境_身体統合OS_v3_1.md' and d.get('observed_sha') is None for d in reg['documents'])
+          print('semantic checks OK')
           PY
       - name: Commit assembled payloads
         run: |
