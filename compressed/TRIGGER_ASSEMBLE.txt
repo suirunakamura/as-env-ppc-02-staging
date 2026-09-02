@@ -1,0 +1,1 @@
+trigger assemble after concat parts 4-9 present
