@@ -14,21 +14,20 @@ jobs:
         run: |
           python3 <<'PY'
           from pathlib import Path
-          # (path, index, expected_old_or_None, new_char) — insert if old is None and len short
           inserts = [
-            ('compressed/pieces/os5_00.txt', 1335, 'r'),  # missing 'r' before tgIpRatlii
-          }
+            ('compressed/pieces/os5_00.txt', 1335, 'r'),
+          ]
           for path, idx, ch in inserts:
             p = Path(path)
             b = bytearray(p.read_bytes())
-            if len(b) == 2999 and idx <= len(b):
-              print(f'insert {path}[{idx}] {ch!r} ctx={bytes(b[idx-5:idx+5])!r}')
+            print(path, 'len', len(b), 'ctx', bytes(b[idx-5:idx+5]))
+            if len(b) == 2999:
               b[idx:idx] = ch.encode()
               assert len(b) == 3000
               p.write_bytes(b)
-              print('fixed', path, 'len', len(b))
+              print('inserted', ch, 'at', idx)
             else:
-              print('skip', path, 'len', len(b))
+              print('skip unexpected len')
           PY
       - name: Commit fixes
         run: |
