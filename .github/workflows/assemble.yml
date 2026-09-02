@@ -3,8 +3,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'chunks/**'
-      - 'manifest.json'
+      - 'compressed/**'
       - '.github/workflows/assemble.yml'
   workflow_dispatch:
 permissions:
@@ -14,32 +13,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Assemble files from base64 chunks
+      - name: Decompress zlib payloads
         run: |
           set -euo pipefail
           python3 <<'PY'
-          import base64, json, pathlib, hashlib
-          root = pathlib.Path('.')
-          manifest = json.loads((root/'manifest.json').read_text())
+          import base64, json, pathlib, zlib, hashlib, re
+          root = pathlib.Path('compressed')
+          def load(name):
+            single = root / f'{name}.zlib.b64'
+            if single.exists():
+              return single.read_text().strip()
+            parts = sorted(root.glob(f'{name}.zlib.part*.b64'), key=lambda p: int(re.search(r'part(\d+)', p.name).group(1)))
+            if not parts:
+              raise SystemExit(f'missing compressed payload for {name}')
+            return ''.join(p.read_text().strip() for p in parts)
           mapping = {
-            'registry': 'registry.json',
-            'decisions': 'decisions.md',
-            'os': 'os.md',
+            'registry': ('registry_pretty', 'registry.json'),
+            'decisions': ('decisions', 'decisions.md'),
+            'os': ('os', 'os.md'),
           }
-          for name, n in manifest.items():
-            parts = []
-            for i in range(n):
-              p = root/'chunks'/f'{name}.{i:03d}.b64'
-              if not p.exists():
-                raise SystemExit(f'missing {p} (need {n} chunks for {name})')
-              parts.append(p.read_text().strip())
-            data = base64.b64decode(''.join(parts))
-            out = root/mapping[name]
-            out.write_bytes(data)
-            print(name, '->', out, 'bytes', len(data), 'sha256', hashlib.sha256(data).hexdigest())
-          decisions = (root/'decisions.md').read_text(encoding='utf-8')
-          os_text = (root/'os.md').read_text(encoding='utf-8')
-          reg = json.loads((root/'registry.json').read_text(encoding='utf-8'))
+          outdir = pathlib.Path('.')
+          for name, (key, dst) in mapping.items():
+            data = zlib.decompress(base64.b64decode(load(key)))
+            (outdir/dst).write_bytes(data)
+            print(name, '->', dst, 'bytes', len(data), 'sha256', hashlib.sha256(data).hexdigest())
+          decisions = (outdir/'decisions.md').read_text(encoding='utf-8')
+          os_text = (outdir/'os.md').read_text(encoding='utf-8')
+          reg = json.loads((outdir/'registry.json').read_text(encoding='utf-8'))
           assert 'D-038' in decisions
           assert 'AS-ENV-PPC-02' in os_text
           assert len(os_text.encode()) > 140000
@@ -52,9 +52,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add registry.json decisions.md os.md
-          if git diff --cached --quiet; then
-            echo "No changes"
-            exit 0
-          fi
-          git commit -m "assemble AS-ENV-PPC-02 payloads from chunks"
+          if git diff --cached --quiet; then echo No changes; exit 0; fi
+          git commit -m "assemble AS-ENV-PPC-02 payloads from zlib"
           git push
