@@ -1,0 +1,44 @@
+name: push-to-asclepius
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [push-to-asclepius]
+permissions:
+  contents: read
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require ASLEPIUS_PAT
+        env:
+          ASLEPIUS_PAT: ${{ secrets.ASLEPIUS_PAT }}
+        run: |
+          if [ -z "${ASLEPIUS_PAT}" ]; then
+            echo "ASLEPIUS_PAT secret missing"; exit 1
+          fi
+      - name: Push three tip files to asclepius feature branch
+        env:
+          GH_TOKEN: ${{ secrets.ASLEPIUS_PAT }}
+        run: |
+          set -euo pipefail
+          OWNER=Liberal-Vision-Inc
+          REPO=project-asclepius
+          BRANCH=cursor/as-env-ppc-02-housing-delta-0947
+          MSG='[S:AS-ENV-PPC-02] add housing PPC Physical Base / Decision Vector semantic delta'
+          push_one() {
+            local path="$1" file="$2"
+            local b64 sha
+            b64=$(base64 -w0 "$file")
+            sha=$(gh api "repos/$OWNER/$REPO/contents/$path?ref=$BRANCH" --jq .sha)
+            gh api --method PUT "repos/$OWNER/$REPO/contents/$path" \
+              -f message="$MSG" \
+              -f branch="$BRANCH" \
+              -f content="$b64" \
+              -f sha="$sha" \
+              --jq '{path:.content.path,sha:.content.sha,commit:.commit.sha,size:.content.size}'
+          }
+          push_one 'docs/asclepius/decisions.md' decisions.md
+          push_one 'docs/design/document_architecture_registry.json' registry.json
+          push_one 'os/環境_身体統合OS_v3_1.md' os.md
+          echo DONE
