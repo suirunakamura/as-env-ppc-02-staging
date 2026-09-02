@@ -10,32 +10,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply known single-byte fixes
+      - name: Apply known byte fixes
         run: |
           python3 <<'PY'
           from pathlib import Path
-          fixes = {
-            'compressed/os.zlib.part0.b64': [(4525, 'r')],
-            'compressed/os.zlib.part3.b64': [(198, '7')],
+          # (path, index, expected_old_or_None, new_char) — insert if old is None and len short
+          inserts = [
+            ('compressed/pieces/os5_00.txt', 1335, 'r'),  # missing 'r' before tgIpRatlii
           }
-          for path, edits in fixes.items():
+          for path, idx, ch in inserts:
             p = Path(path)
-            if not p.exists():
-              print('skip missing', path)
-              continue
             b = bytearray(p.read_bytes())
-            for idx, ch in edits:
-              old = chr(b[idx])
-              print(f'{path}[{idx}]: {old!r} -> {ch!r}')
-              b[idx] = ord(ch)
-            p.write_bytes(b)
-            print('wrote', path, 'len', len(b))
+            if len(b) == 2999 and idx <= len(b):
+              print(f'insert {path}[{idx}] {ch!r} ctx={bytes(b[idx-5:idx+5])!r}')
+              b[idx:idx] = ch.encode()
+              assert len(b) == 3000
+              p.write_bytes(b)
+              print('fixed', path, 'len', len(b))
+            else:
+              print('skip', path, 'len', len(b))
           PY
       - name: Commit fixes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add compressed/os.zlib.part0.b64 compressed/os.zlib.part3.b64
+          git add compressed/pieces/os5_00.txt
           if git diff --cached --quiet; then echo No changes; exit 0; fi
-          git commit -m "fix OS zlib part0/part3 single-byte corruptions"
+          git commit -m "fix os5_00 missing byte at 1335"
           git push
