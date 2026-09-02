@@ -1,0 +1,49 @@
+name: assemble-ppc-payload
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'chunks/**'
+      - 'manifest.json'
+      - '.github/workflows/assemble.yml'
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble files from base64 chunks
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import base64, json, pathlib
+          root = pathlib.Path('.')
+          manifest = json.loads((root/'manifest.json').read_text())
+          mapping = {
+            'registry': 'registry.json',
+            'decisions': 'decisions.md',
+            'os': 'os.md',
+          }
+          for name, n in manifest.items():
+            parts = []
+            for i in range(n):
+              p = root/'chunks'/f'{name}.{i:03d}.b64'
+              parts.append(p.read_text().strip())
+            data = base64.b64decode(''.join(parts))
+            out = root/mapping[name]
+            out.write_bytes(data)
+            print(name, '->', out, 'bytes', len(data))
+          PY
+      - name: Commit assembled payloads
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add registry.json decisions.md os.md
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "assemble AS-ENV-PPC-02 payloads from chunks"
+          git push
